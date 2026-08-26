@@ -1,12 +1,14 @@
 "use client";
 
+import type { MarkerOptions, PopupOptions } from "maplibre-gl";
 import * as MapLibreGL from "maplibre-gl";
-import type { PopupOptions, MarkerOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type * as GeoJSON from "geojson";
+import { Loader2, Locate, Maximize, Minus, Plus, X } from "lucide-react";
 import {
   createContext,
   forwardRef,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -15,10 +17,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { X, Minus, Plus, Locate, Maximize, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -53,9 +53,9 @@ const blankMapStyle: MapLibreGL.StyleSpecification = {
 
 // Prevent equivalent inline style objects from triggering a full map style reload.
 function useStableValue<T>(value: T): T {
-  const key = useMemo(() => JSON.stringify(value) ?? "", [value]);
+  const _key = useMemo(() => JSON.stringify(value) ?? "", [value]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => value, [key]);
+  return useMemo(() => value, [value]);
 }
 
 function mergeHoverPaint<T extends Record<string, unknown>>(
@@ -331,7 +331,7 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       setMapInstance(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mapStyles.dark, mapStyles.light, props, resolvedTheme, viewport]);
 
   // Sync controlled viewport to map
   useEffect(() => {
@@ -525,7 +525,7 @@ function MapMarker({
     return markerInstance;
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draggable, latitude, longitude, markerOptions]);
 
   useEffect(() => {
     if (!map) return;
@@ -537,7 +537,7 @@ function MapMarker({
     };
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]);
+  }, [map, marker.addTo, marker.remove]);
 
   const { offset, rotation, rotationAlignment, pitchAlignment } = markerOptions;
 
@@ -654,7 +654,7 @@ function MarkerPopup({
 
     return popupInstance;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [container, popupOptions]);
 
   useEffect(() => {
     if (!map) return;
@@ -666,7 +666,7 @@ function MarkerPopup({
       marker.setPopup(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]);
+  }, [map, container, marker.setPopup, popup]);
 
   // Sync popup options when they change.
   useEffect(() => {
@@ -719,7 +719,7 @@ function MarkerTooltip({
 
     return tooltipInstance;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [popupOptions]);
 
   useEffect(() => {
     if (!map) return;
@@ -740,7 +740,15 @@ function MarkerTooltip({
       tooltip.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]);
+  }, [
+    map,
+    container,
+    marker.getElement,
+    marker.getLngLat,
+    tooltip.remove,
+    tooltip.setDOMContent,
+    tooltip.setLngLat,
+  ]);
 
   // Sync tooltip options when they change.
   useEffect(() => {
@@ -1052,7 +1060,7 @@ function MapPopup({
 
     return popupInstance;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [latitude, longitude, popupOptions]);
 
   useEffect(() => {
     if (!map) return;
@@ -1071,7 +1079,16 @@ function MapPopup({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]);
+  }, [
+    map,
+    container,
+    popup.addTo,
+    popup.isOpen,
+    popup.off,
+    popup.on,
+    popup.remove,
+    popup.setDOMContent,
+  ]);
 
   // Sync popup position and options when they change.
   useEffect(() => {
@@ -1180,7 +1197,7 @@ function MapRoute({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, map]);
+  }, [isLoaded, map, color, dashArray, layerId, opacity, sourceId, width]);
 
   // When coordinates change, update the source data
   useEffect(() => {
@@ -1393,7 +1410,7 @@ function MapGeoJSON<
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, map]);
+  }, [isLoaded, map, data, fillLayerId, lineLayerId, promoteId, sourceId]);
 
   // Sync data when it changes.
   useEffect(() => {
@@ -1770,7 +1787,18 @@ function MapArc<T extends MapArcDatum = MapArcDatum>({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, map]);
+  }, [
+    isLoaded,
+    map,
+    beforeId,
+    geoJSON,
+    hitLayerId,
+    hitWidth,
+    layerId,
+    mergedLayout,
+    mergedPaint,
+    sourceId,
+  ]);
 
   // Sync features when data / curvature / samples change.
   useEffect(() => {
@@ -2029,7 +2057,20 @@ function MapClusterLayer<
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, map, sourceId]);
+  }, [
+    isLoaded,
+    map,
+    sourceId,
+    clusterColors[0],
+    clusterCountLayerId,
+    clusterLayerId,
+    clusterMaxZoom,
+    clusterRadius,
+    clusterThresholds[0],
+    data,
+    pointColor,
+    unclusteredLayerId,
+  ]);
 
   // Update source data when data prop changes (only for non-URL data)
   useEffect(() => {

@@ -1,0 +1,2 @@
+ALTER TABLE "sensors" ADD COLUMN "status" varchar(32) DEFAULT 'stable' NOT NULL;--> statement-breakpoint
+ALTER TABLE "sensors" ADD COLUMN "status_measured_at" timestamp with time zone DEFAULT now() NOT NULL;

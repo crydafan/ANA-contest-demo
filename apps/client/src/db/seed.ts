@@ -21,6 +21,8 @@ async function seed() {
           name: sensor.name,
           latitude: sensor.latitude,
           longitude: sensor.longitude,
+          status: sensor.status,
+          statusMeasuredAt: new Date(sensor.statusMeasuredAt),
         })),
       )
       .onConflictDoUpdate({
@@ -29,6 +31,8 @@ async function seed() {
           name: sql`excluded.name`,
           latitude: sql`excluded.latitude`,
           longitude: sql`excluded.longitude`,
+          status: sql`excluded.status`,
+          statusMeasuredAt: sql`excluded.status_measured_at`,
           updatedAt: sql`now()`,
         },
       })
@@ -65,11 +69,17 @@ async function seed() {
           throw new Error(`Unable to resolve parameter ${measurement.key}.`);
         }
 
+        if (measurement.measuredAt === null) {
+          throw new Error(
+            `Seed measurement ${measurement.key} has no timestamp.`,
+          );
+        }
+
         return {
           sensorId,
           parameterId,
           value: measurement.value,
-          measuredAt: new Date(sensor.measuredAt),
+          measuredAt: new Date(measurement.measuredAt),
         };
       });
     });

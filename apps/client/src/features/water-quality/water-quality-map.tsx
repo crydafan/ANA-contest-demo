@@ -1,7 +1,12 @@
 "use client";
 
+import type {
+  ClientToServerEvents,
+  ServerToClientEvents,
+} from "@ana-contest-demo/water-quality-contract";
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { Socket } from "socket.io-client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,15 +31,19 @@ import {
   MapPopup,
   MarkerContent,
 } from "@/components/ui/map";
+import type { SensorSnapshot } from "@/data/water-quality";
 import {
-  type SensorSnapshot,
-  WATER_QUALITY_SENSORS,
-} from "@/data/water-quality";
-import {
+  formatMeasuredAt,
   formatMeasurementValue,
   WATER_QUALITY_PARAMETER_LABELS,
   WATER_QUALITY_STATUS_PRESENTATION,
 } from "@/features/water-quality/presentation";
+import {
+  getRealtimeUrl,
+  isSensorSnapshot,
+  mergeSensorSnapshots,
+  type RealtimeConnectionState,
+} from "@/features/water-quality/realtime";
 import { cn } from "@/lib/utils";
 
 const MAP_BOUNDS: [[number, number], [number, number]] = [
@@ -166,14 +175,79 @@ function SensorDrawer({
   sensor,
   open,
   onOpenChange,
+  onSnapshot,
 }: {
   sensor: SensorSnapshot | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSnapshot: (snapshot: SensorSnapshot) => void;
 }) {
+  const [connectionState, setConnectionState] =
+    useState<RealtimeConnectionState>("connecting");
   const status = sensor
     ? WATER_QUALITY_STATUS_PRESENTATION[sensor.status]
     : null;
+  const sensorId = sensor?.id ?? null;
+
+  useEffect(() => {
+    if (!open || sensorId === null) return;
+    let disposed = false;
+    let realtimeSocket: Socket<
+      ServerToClientEvents,
+      ClientToServerEvents
+    > | null = null;
+    const abortController = new AbortController();
+
+    const acceptSnapshot = (value: unknown) => {
+      if (isSensorSnapshot(value) && value.id === sensorId) onSnapshot(value);
+    };
+    const refreshSnapshot = async () => {
+      try {
+        const response = await fetch(`/api/sensors/${sensorId}`, {
+          cache: "no-store",
+          signal: abortController.signal,
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { data?: unknown };
+        acceptSnapshot(payload.data);
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          console.error(`Unable to refresh sensor ${sensorId}.`, error);
+        }
+      }
+    };
+    const connectRealtime = async () => {
+      const { io } = await import("socket.io-client");
+      if (disposed) return;
+      const socket = io(getRealtimeUrl(), {
+        auth: { sensorId },
+        reconnection: true,
+        reconnectionDelay: 1_000,
+        reconnectionDelayMax: 10_000,
+      }) as Socket<ServerToClientEvents, ClientToServerEvents>;
+      realtimeSocket = socket;
+      socket.on("connect", () => setConnectionState("live"));
+      socket.on("sensor:snapshot", acceptSnapshot);
+      socket.on("disconnect", () => {
+        if (!disposed && socket.active) setConnectionState("reconnecting");
+      });
+      socket.on("connect_error", () => {
+        if (!disposed) setConnectionState("reconnecting");
+      });
+      socket.io.on("reconnect_attempt", () => {
+        if (!disposed) setConnectionState("reconnecting");
+      });
+    };
+
+    setConnectionState("connecting");
+    void connectRealtime();
+    void refreshSnapshot();
+    return () => {
+      disposed = true;
+      abortController.abort();
+      realtimeSocket?.disconnect();
+    };
+  }, [open, sensorId, onSnapshot]);
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="right">
@@ -197,11 +271,35 @@ function SensorDrawer({
             </DrawerClose>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8">
               <div className="mb-5">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Parámetros monitoreados
-                </h2>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Parámetros monitoreados
+                  </h2>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset",
+                      connectionState === "live"
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        : "bg-slate-100 text-slate-600 ring-slate-200",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        connectionState === "live"
+                          ? "bg-emerald-500"
+                          : "animate-pulse bg-slate-400",
+                      )}
+                    />
+                    {connectionState === "live"
+                      ? "En vivo"
+                      : connectionState === "reconnecting"
+                        ? "Reconectando"
+                        : "Conectando"}
+                  </span>
+                </div>
                 <p className="mt-1 text-sm text-slate-500">
-                  Última lectura disponible
+                  Última lectura: {formatMeasuredAt(sensor.measuredAt)}
                 </p>
               </div>
               <MeasurementList sensor={sensor} />
@@ -217,15 +315,29 @@ function SensorDrawer({
   );
 }
 
-export function WaterQualityMap() {
+export function WaterQualityMap({
+  initialSensors,
+}: {
+  initialSensors: readonly SensorSnapshot[];
+}) {
+  const [sensors, setSensors] = useState(() => [...initialSensors]);
   const [popupSensorId, setPopupSensorId] = useState<string | null>(null);
   const [drawerSensorId, setDrawerSensorId] = useState<string | null>(null);
 
   const popupSensor =
-    WATER_QUALITY_SENSORS.find((sensor) => sensor.id === popupSensorId) ?? null;
+    sensors.find((sensor) => sensor.id === popupSensorId) ?? null;
   const drawerSensor =
-    WATER_QUALITY_SENSORS.find((sensor) => sensor.id === drawerSensorId) ??
-    null;
+    sensors.find((sensor) => sensor.id === drawerSensorId) ?? null;
+
+  const acceptSnapshot = useCallback((snapshot: SensorSnapshot) => {
+    setSensors((currentSensors) =>
+      currentSensors.map((sensor) =>
+        sensor.id === snapshot.id
+          ? mergeSensorSnapshots(sensor, snapshot)
+          : sensor,
+      ),
+    );
+  }, []);
 
   const openDetails = (sensorId: string) => {
     setPopupSensorId(null);
@@ -245,7 +357,7 @@ export function WaterQualityMap() {
         maxZoom={16}
         className="size-full"
       >
-        {WATER_QUALITY_SENSORS.map((sensor) => (
+        {sensors.map((sensor) => (
           <MapMarker
             key={sensor.id}
             longitude={sensor.longitude}
@@ -282,6 +394,7 @@ export function WaterQualityMap() {
         onOpenChange={(open) => {
           if (!open) setDrawerSensorId(null);
         }}
+        onSnapshot={acceptSnapshot}
       />
     </div>
   );

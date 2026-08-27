@@ -27,6 +27,10 @@ export const sensors = pgTable(
     name: varchar({ length: 255 }).notNull(),
     latitude: doublePrecision().notNull(),
     longitude: doublePrecision().notNull(),
+    status: varchar({ length: 32 }).default("stable").notNull(),
+    statusMeasuredAt: timestamp("status_measured_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
     ...timestamps,
   },
   (table) => [uniqueIndex("sensors_uuid_unique").on(table.uuid)],

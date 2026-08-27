@@ -61,3 +61,13 @@ export function formatMeasurementValue({
 
   return value.toFixed(WATER_QUALITY_PARAMETER_PRECISION[key]);
 }
+
+const MEASUREMENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PE", {
+  dateStyle: "medium",
+  timeStyle: "medium",
+});
+
+export function formatMeasuredAt(measuredAt: string | null): string {
+  if (measuredAt === null) return "Sin lecturas disponibles";
+  return MEASUREMENT_DATE_FORMATTER.format(new Date(measuredAt));
+}

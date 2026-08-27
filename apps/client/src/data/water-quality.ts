@@ -1,37 +1,17 @@
-export const WATER_QUALITY_PARAMETERS = [
-  { key: "ph", unit: "pH" },
-  { key: "temperature", unit: "°C" },
-  { key: "conductivity", unit: "μS/cm" },
-  { key: "dissolved_oxygen", unit: "mg/L" },
-  { key: "sulfates", unit: "mg/L" },
-  { key: "total_nitrogen", unit: "mg/L" },
-  { key: "e_coli", unit: "NMP/100 mL" },
-  { key: "thermotolerant_coliforms", unit: "NMP/100 mL" },
-  { key: "turbidity", unit: "NTU" },
-  { key: "lead", unit: "mg/L" },
-  { key: "zinc", unit: "mg/L" },
-] as const;
+import {
+  type MeasurementSnapshot,
+  type SensorSnapshot,
+  WATER_QUALITY_PARAMETERS,
+  type WaterQualityParameterKey,
+} from "@ana-contest-demo/water-quality-contract";
 
-export type WaterQualityParameterKey =
-  (typeof WATER_QUALITY_PARAMETERS)[number]["key"];
-
-export type WaterQualityStatus = "stable" | "observation" | "attention";
-
-export interface MeasurementSnapshot {
-  key: WaterQualityParameterKey;
-  value: number | null;
-  unit: string;
-}
-
-export interface SensorSnapshot {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  status: WaterQualityStatus;
-  measuredAt: string;
-  measurements: readonly MeasurementSnapshot[];
-}
+export {
+  type MeasurementSnapshot,
+  type SensorSnapshot,
+  WATER_QUALITY_PARAMETERS,
+  type WaterQualityParameterKey,
+  type WaterQualityStatus,
+} from "@ana-contest-demo/water-quality-contract";
 
 export const WATER_QUALITY_MEASURED_AT = "2026-08-26T17:00:00.000Z";
 
@@ -44,6 +24,7 @@ function createMeasurements(
     key,
     value: values[key],
     unit,
+    measuredAt: WATER_QUALITY_MEASURED_AT,
   }));
 }
 
@@ -54,6 +35,7 @@ export const WATER_QUALITY_SENSORS: readonly SensorSnapshot[] = [
     latitude: -11.388661,
     longitude: -76.769007,
     status: "stable",
+    statusMeasuredAt: WATER_QUALITY_MEASURED_AT,
     measuredAt: WATER_QUALITY_MEASURED_AT,
     measurements: createMeasurements({
       ph: 8.02,
@@ -75,6 +57,7 @@ export const WATER_QUALITY_SENSORS: readonly SensorSnapshot[] = [
     latitude: -11.223,
     longitude: -76.657,
     status: "observation",
+    statusMeasuredAt: WATER_QUALITY_MEASURED_AT,
     measuredAt: WATER_QUALITY_MEASURED_AT,
     measurements: createMeasurements({
       ph: 7.74,
@@ -96,6 +79,7 @@ export const WATER_QUALITY_SENSORS: readonly SensorSnapshot[] = [
     latitude: -11.370121,
     longitude: -77.028234,
     status: "attention",
+    statusMeasuredAt: WATER_QUALITY_MEASURED_AT,
     measuredAt: WATER_QUALITY_MEASURED_AT,
     measurements: createMeasurements({
       ph: 7.58,

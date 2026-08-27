@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ANA Contest Demo
 
-## Getting Started
+This repository is a pnpm monorepo containing the AquaSense Next.js client.
 
-First, run the development server:
+## Workspace layout
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+apps/
+  client/       Next.js application and Drizzle database resources
+packages/       Reserved for future shared packages
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The client owns its source code, static assets, Next.js configuration, database
+schema, and Drizzle migrations. Environment files such as `.env.local` belong
+in `apps/client` so both Next.js and the database scripts load them from the
+application directory.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Getting started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Install dependencies from the repository root:
 
-## Learn More
+```bash
+pnpm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+Start the development server:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Deploy on Vercel
+## Commands
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run the common commands from the repository root:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm dev
+pnpm build
+pnpm start
+pnpm lint
+pnpm format
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+```
+
+To run a client command directly, filter by its workspace package name:
+
+```bash
+pnpm --filter @ana-contest-demo/client <command>
+```

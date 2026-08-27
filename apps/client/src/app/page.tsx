@@ -1,7 +1,6 @@
 import Image from "next/image";
-
+import { WaterMap } from "@/features/water-quality/components/water-map";
 import { getAllSensorSnapshots } from "@/features/water-quality/data-access";
-import { WaterQualityMap } from "@/features/water-quality/water-quality-map";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +47,7 @@ export default async function Home() {
       </header>
       <main id="mapa-calidad" className="min-h-0 flex-1">
         <h1 className="sr-only">Monitoreo de calidad del agua AquaSense</h1>
-        <WaterQualityMap initialSensors={sensors} />
+        <WaterMap initialSensors={sensors} />
       </main>
     </div>
   );

@@ -1,7 +1,8 @@
-import type {
-  MeasurementSnapshot,
-  SensorSnapshot,
-} from "@ana-contest-demo/water-quality-contract";
+import {
+  type MeasurementSnapshot,
+  type SensorSnapshot,
+  sensorSnapshotSchema,
+} from "@ana-contest-demo/contract";
 
 export type RealtimeConnectionState = "connecting" | "live" | "reconnecting";
 
@@ -63,14 +64,7 @@ export function mergeSensorSnapshots(
 }
 
 export function isSensorSnapshot(value: unknown): value is SensorSnapshot {
-  if (typeof value !== "object" || value === null) return false;
-  const snapshot = value as Partial<SensorSnapshot>;
-  return (
-    typeof snapshot.id === "string" &&
-    typeof snapshot.name === "string" &&
-    typeof snapshot.statusMeasuredAt === "string" &&
-    Array.isArray(snapshot.measurements)
-  );
+  return sensorSnapshotSchema.safeParse(value).success;
 }
 
 export function getRealtimeUrl(): string {

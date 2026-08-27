@@ -1,8 +1,9 @@
-import { ingestSensorReading } from "@/features/water-quality/data-access";
+import { ingestAndPublishSensorReading } from "@/features/water-quality/ingestion";
 import {
   parseSensorReadingInput,
   SensorReadingValidationError,
 } from "@/features/water-quality/sensor-readings";
+import { RealtimeUnavailableError } from "@/features/water-quality/snapshot-publisher";
 
 function errorResponse(status: number, code: string, message: string) {
   return Response.json({ error: { code, message } }, { status });
@@ -11,7 +12,7 @@ function errorResponse(status: number, code: string, message: string) {
 export async function POST(request: Request) {
   try {
     const input = parseSensorReadingInput(await request.json());
-    return Response.json({ data: await ingestSensorReading(input) });
+    return Response.json({ data: await ingestAndPublishSensorReading(input) });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return errorResponse(
@@ -22,6 +23,13 @@ export async function POST(request: Request) {
     }
     if (error instanceof SensorReadingValidationError) {
       return errorResponse(400, "invalid_payload", error.message);
+    }
+    if (error instanceof RealtimeUnavailableError) {
+      return errorResponse(
+        503,
+        "realtime_unavailable",
+        "The reading was persisted but could not be published in realtime. Retry the request.",
+      );
     }
     console.error("Unable to ingest sensor readings.", error);
     return errorResponse(

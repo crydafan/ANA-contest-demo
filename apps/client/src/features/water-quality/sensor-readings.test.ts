@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  isSensorUuid,
-  sensorRoomName,
-} from "@ana-contest-demo/water-quality-contract";
+import { isSensorUuid, sensorRoomName } from "@ana-contest-demo/contract";
 
 import {
   parseSensorReadingInput,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SensorSnapshot } from "@ana-contest-demo/water-quality-contract";
+import type { SensorSnapshot } from "@ana-contest-demo/contract";
 
 import { mergeSensorSnapshots } from "@/features/water-quality/realtime";
 

@@ -1,20 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type {
-  ClientToServerEvents,
-  SensorSnapshot,
-  ServerToClientEvents,
-} from "@ana-contest-demo/water-quality-contract";
+import {
+  type ClientToServerEvents,
+  type SensorSnapshot,
+  type ServerToClientEvents,
+  sensorRoomName,
+} from "@ana-contest-demo/contract";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { Emitter } from "@socket.io/redis-emitter";
+import { Redis } from "ioredis";
 import {
   type Socket as ClientSocket,
   io as createClient,
 } from "socket.io-client";
 
+import { createLogger } from "./logger.js";
 import { createRealtimeApplication } from "./socket-app.js";
 
 const SENSOR_A = "1bbf0dfa-e3d8-4de8-8b7e-3c521a7b4761";
 const SENSOR_B = "e6d01d9f-019e-4cc4-918b-cdfd18bd9027";
+const allowedOrigins = ["http://localhost:3000"];
+const logger = createLogger("silent");
 
 function snapshot(): SensorSnapshot {
   return {
@@ -36,41 +43,51 @@ function snapshot(): SensorSnapshot {
   };
 }
 
-test("serves health and isolates sensor rooms", async () => {
-  const realtime = createRealtimeApplication(["http://localhost:3000"]);
-  await new Promise<void>((resolve) =>
-    realtime.httpServer.listen(0, "127.0.0.1", resolve),
-  );
-  const address = realtime.httpServer.address();
+async function listen(isRedisReady = () => true) {
+  const realtime = createRealtimeApplication({
+    allowedOrigins,
+    isRedisReady,
+    logger,
+  });
+  const server = realtime.app.listen(0, "127.0.0.1");
+  realtime.io.attach(server);
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
   assert(address && typeof address !== "string");
-  const url = `http://127.0.0.1:${address.port}`;
-  const clients = [SENSOR_A, SENSOR_A, SENSOR_B].map(
-    (sensorId) =>
-      createClient(url, {
-        auth: { sensorId },
-        forceNew: true,
-        reconnection: false,
-      }) as ClientSocket<ServerToClientEvents, ClientToServerEvents>,
-  );
+  return { realtime, url: `http://127.0.0.1:${address.port}` };
+}
+
+function connect(url: string, sensorId: string) {
+  return createClient(url, {
+    auth: { sensorId },
+    forceNew: true,
+    reconnection: false,
+  }) as ClientSocket<ServerToClientEvents, ClientToServerEvents>;
+}
+
+function waitForConnection(client: ClientSocket) {
+  return new Promise<void>((resolve, reject) => {
+    client.once("connect", resolve);
+    client.once("connect_error", reject);
+  });
+}
+
+test("serves health and isolates sensor rooms", async () => {
+  const { realtime, url } = await listen();
+  const clients = [SENSOR_A, SENSOR_A, SENSOR_B].map((id) => connect(url, id));
   try {
     const health = await fetch(`${url}/health`, {
-      headers: { Origin: "http://localhost:3000" },
+      headers: { Origin: allowedOrigins[0] },
     });
     assert.equal(health.status, 200);
     assert.equal(
       health.headers.get("access-control-allow-origin"),
-      "http://localhost:3000",
+      allowedOrigins[0],
     );
+    assert.equal(health.headers.has("x-powered-by"), false);
+    assert.equal(health.headers.has("x-content-type-options"), true);
 
-    await Promise.all(
-      clients.map(
-        (client) =>
-          new Promise<void>((resolve, reject) => {
-            client.once("connect", resolve);
-            client.once("connect_error", reject);
-          }),
-      ),
-    );
+    await Promise.all(clients.map(waitForConnection));
     const received = clients.slice(0, 2).map(
       (client) =>
         new Promise<SensorSnapshot>((resolve) => {
@@ -81,7 +98,9 @@ test("serves health and isolates sensor rooms", async () => {
     clients[2]?.once("sensor:snapshot", () => {
       unrelatedReceived = true;
     });
-    realtime.emitSnapshot(snapshot());
+    realtime.io
+      .to(sensorRoomName(SENSOR_A))
+      .emit("sensor:snapshot", snapshot());
     assert.equal((await Promise.all(received)).length, 2);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(unrelatedReceived, false);
@@ -91,17 +110,24 @@ test("serves health and isolates sensor rooms", async () => {
   }
 });
 
+test("reports unavailable when Redis is not ready", async () => {
+  const { realtime, url } = await listen(() => false);
+  try {
+    const health = await fetch(`${url}/health`);
+    assert.equal(health.status, 503);
+    assert.deepEqual(await health.json(), {
+      status: "unavailable",
+      redis: "unavailable",
+      connections: 0,
+    });
+  } finally {
+    await new Promise<void>((resolve) => realtime.io.close(() => resolve()));
+  }
+});
+
 test("rejects an invalid sensor UUID", async () => {
-  const realtime = createRealtimeApplication(["http://localhost:3000"]);
-  await new Promise<void>((resolve) =>
-    realtime.httpServer.listen(0, "127.0.0.1", resolve),
-  );
-  const address = realtime.httpServer.address();
-  assert(address && typeof address !== "string");
-  const client = createClient(`http://127.0.0.1:${address.port}`, {
-    auth: { sensorId: "invalid" },
-    reconnection: false,
-  });
+  const { realtime, url } = await listen();
+  const client = connect(url, "invalid");
   try {
     const error = await new Promise<Error>((resolve) => {
       client.once("connect_error", resolve);
@@ -112,3 +138,46 @@ test("rejects an invalid sensor UUID", async () => {
     await new Promise<void>((resolve) => realtime.io.close(() => resolve()));
   }
 });
+
+test(
+  "accepts snapshots from an external Redis emitter",
+  { skip: process.env.RUN_REDIS_TESTS !== "1" || !process.env.REDIS_URL },
+  async () => {
+    const redisUrl = process.env.REDIS_URL as string;
+    const prefix = `ana-contest-demo:test:${Date.now()}`;
+    const publisher = new Redis(redisUrl);
+    const subscriber = publisher.duplicate();
+    const emitterClient = publisher.duplicate();
+    const realtime = createRealtimeApplication({
+      allowedOrigins,
+      isRedisReady: () =>
+        publisher.status === "ready" && subscriber.status === "ready",
+      logger,
+    });
+    realtime.io.adapter(createAdapter(publisher, subscriber, { key: prefix }));
+    const server = realtime.app.listen(0, "127.0.0.1");
+    realtime.io.attach(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    const client = connect(`http://127.0.0.1:${address.port}`, SENSOR_A);
+    try {
+      await waitForConnection(client);
+      const received = new Promise<SensorSnapshot>((resolve) => {
+        client.once("sensor:snapshot", resolve);
+      });
+      new Emitter<ServerToClientEvents>(emitterClient, { key: prefix })
+        .to(sensorRoomName(SENSOR_A))
+        .emit("sensor:snapshot", snapshot());
+      assert.deepEqual(await received, snapshot());
+    } finally {
+      client.disconnect();
+      await new Promise<void>((resolve) => realtime.io.close(() => resolve()));
+      await Promise.allSettled([
+        subscriber.quit(),
+        emitterClient.quit(),
+        publisher.quit(),
+      ]);
+    }
+  },
+);

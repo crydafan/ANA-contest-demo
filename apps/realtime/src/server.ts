@@ -1,46 +1,71 @@
 import "dotenv/config";
 
-import { Pool } from "pg";
+import { createTerminus } from "@godaddy/terminus";
+import { createAdapter } from "@socket.io/redis-adapter";
+import helmet from "helmet";
+import { Redis } from "ioredis";
 
-import { SensorNotificationListener } from "./notification-listener.js";
-import { loadSensorSnapshot } from "./snapshot-repository.js";
+import { loadConfig } from "./config.js";
+import { createLogger } from "./logger.js";
 import { createRealtimeApplication } from "./socket-app.js";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+async function start(): Promise<void> {
+  const config = loadConfig();
+  const logger = createLogger(config.logLevel);
+  const redisPublisher = new Redis(config.redisUrl, {
+    lazyConnect: true,
+    enableReadyCheck: true,
+    maxRetriesPerRequest: null,
+  });
+  const redisSubscriber = redisPublisher.duplicate();
+  for (const [role, redis] of [
+    ["publisher", redisPublisher],
+    ["subscriber", redisSubscriber],
+  ] as const) {
+    redis.on("error", (error) => {
+      logger.error({ error, role }, "Redis connection failed.");
+    });
+  }
 
-const port = Number.parseInt(process.env.PORT ?? "3001", 10);
-const allowedOrigins = (process.env.CLIENT_ORIGIN ?? "http://localhost:3000")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const pool = new Pool({ connectionString: databaseUrl });
-const realtime = createRealtimeApplication(allowedOrigins);
-const listener = new SensorNotificationListener(
-  databaseUrl,
-  async (sensorId) => {
-    try {
-      const snapshot = await loadSensorSnapshot(pool, sensorId);
-      if (snapshot) realtime.emitSnapshot(snapshot);
-    } catch (error) {
-      console.error(`Unable to broadcast sensor ${sensorId}.`, error);
-    }
-  },
-);
+  await Promise.all([redisPublisher.connect(), redisSubscriber.connect()]);
 
-let shuttingDown = false;
-async function shutdown(): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  await listener.stop();
-  await pool.end();
-  await new Promise<void>((resolve) => realtime.io.close(() => resolve()));
+  const realtime = createRealtimeApplication({
+    allowedOrigins: config.allowedOrigins,
+    isRedisReady: () =>
+      redisPublisher.status === "ready" && redisSubscriber.status === "ready",
+    logger,
+  });
+  realtime.io.adapter(
+    createAdapter(redisPublisher, redisSubscriber, {
+      key: config.redisChannelPrefix,
+      publishOnSpecificResponseChannel: true,
+    }),
+  );
+
+  const server = realtime.app.listen(config.port, "0.0.0.0", () => {
+    logger.info(
+      { host: "0.0.0.0", port: config.port },
+      "Realtime service listening.",
+    );
+  });
+  realtime.io.attach(server);
+  realtime.io.engine.use(helmet());
+
+  createTerminus(server, {
+    signals: ["SIGINT", "SIGTERM"],
+    timeout: 10_000,
+    useExit0: true,
+    logger: (message, error) => logger.error({ error }, message),
+    onSignal: async () => {
+      logger.info("Realtime service is shutting down.");
+      realtime.io.disconnectSockets(true);
+      await Promise.allSettled([redisSubscriber.quit(), redisPublisher.quit()]);
+    },
+  });
 }
 
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
-
-realtime.httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`Realtime service listening on 0.0.0.0:${port}`);
+start().catch((error: unknown) => {
+  const logger = createLogger("error");
+  logger.fatal({ error }, "Unable to start the realtime service.");
+  process.exitCode = 1;
 });
-listener.start();

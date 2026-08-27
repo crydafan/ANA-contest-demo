@@ -11,9 +11,10 @@
     "test": "pnpm --recursive test",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "db:generate": "pnpm --filter @ana-contest-demo/client db:generate",
-    "db:migrate": "pnpm --filter @ana-contest-demo/client db:migrate",
-    "db:seed": "pnpm --filter @ana-contest-demo/client db:seed"
+    "test:db": "pnpm --filter @ana-contest-demo/db test:db",
+    "db:generate": "pnpm --filter @ana-contest-demo/db db:generate",
+    "db:migrate": "pnpm --filter @ana-contest-demo/db db:migrate",
+    "db:seed": "pnpm --filter @ana-contest-demo/db db:seed"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2"

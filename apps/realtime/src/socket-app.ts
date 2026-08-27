@@ -1,17 +1,18 @@
-import { createServer, type Server as HttpServer } from "node:http";
-
 import {
   type ClientToServerEvents,
   type InterServerEvents,
-  isSensorUuid,
-  type SensorSnapshot,
   type ServerToClientEvents,
   type SocketData,
   sensorRoomName,
-} from "@ana-contest-demo/water-quality-contract";
+  socketAuthenticationSchema,
+} from "@ana-contest-demo/contract";
 import cors from "cors";
 import express, { type Express } from "express";
+import helmet from "helmet";
+import { pinoHttp } from "pino-http";
 import { Server } from "socket.io";
+
+import type { Logger } from "./logger.js";
 
 export type SensorSocketServer = Server<
   ClientToServerEvents,
@@ -22,56 +23,66 @@ export type SensorSocketServer = Server<
 
 export interface RealtimeApplication {
   app: Express;
-  httpServer: HttpServer;
   io: SensorSocketServer;
-  emitSnapshot: (snapshot: SensorSnapshot) => void;
 }
 
-export function createRealtimeApplication(
-  allowedOrigins: readonly string[],
-): RealtimeApplication {
+interface RealtimeApplicationOptions {
+  allowedOrigins: readonly string[];
+  isRedisReady: () => boolean;
+  logger: Logger;
+}
+
+export function createRealtimeApplication({
+  allowedOrigins,
+  isRedisReady,
+  logger,
+}: RealtimeApplicationOptions): RealtimeApplication {
   const app = express();
   app.disable("x-powered-by");
+  app.use(helmet());
   app.use(cors({ origin: [...allowedOrigins] }));
-  app.use(express.json({ limit: "32kb" }));
+  app.use(pinoHttp({ logger }));
 
-  const httpServer = createServer(app);
   const io = new Server<
     ClientToServerEvents,
     ServerToClientEvents,
     InterServerEvents,
     SocketData
-  >(httpServer, {
+  >({
     cors: { origin: [...allowedOrigins], methods: ["GET", "POST"] },
   });
 
   app.get("/health", (_request, response) => {
-    response.status(200).json({
-      status: "ok",
+    const ready = isRedisReady();
+    response.status(ready ? 200 : 503).json({
+      status: ready ? "ok" : "unavailable",
+      redis: ready ? "ready" : "unavailable",
       connections: io.engine.clientsCount,
     });
   });
 
   io.use((socket, next) => {
-    const sensorId = socket.handshake.auth.sensorId;
-    if (typeof sensorId !== "string" || !isSensorUuid(sensorId)) {
+    const authentication = socketAuthenticationSchema.safeParse(
+      socket.handshake.auth,
+    );
+    if (!authentication.success) {
       next(new Error("A valid sensorId is required."));
       return;
     }
-    socket.data.sensorId = sensorId.toLowerCase();
+    socket.data.sensorId = authentication.data.sensorId;
     next();
   });
 
   io.on("connection", (socket) => {
     void socket.join(sensorRoomName(socket.data.sensorId));
+    logger.debug(
+      { socketId: socket.id, sensorId: socket.data.sensorId },
+      "Socket connected.",
+    );
+    socket.on("disconnect", (reason) => {
+      logger.debug({ socketId: socket.id, reason }, "Socket disconnected.");
+    });
   });
 
-  return {
-    app,
-    httpServer,
-    io,
-    emitSnapshot(snapshot) {
-      io.to(sensorRoomName(snapshot.id)).emit("sensor:snapshot", snapshot);
-    },
-  };
+  return { app, io };
 }

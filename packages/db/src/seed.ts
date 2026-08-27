@@ -1,18 +1,21 @@
+import "dotenv/config";
+
+import { WATER_QUALITY_PARAMETERS } from "@ana-contest-demo/contract";
 import { sql } from "drizzle-orm";
 
-import {
-  WATER_QUALITY_PARAMETERS,
-  WATER_QUALITY_SENSORS,
-} from "@/data/water-quality";
-import { db } from "@/db";
-import { measurements, parameters, sensors } from "@/db/schema";
+import { createDatabase } from "./database";
+import { measurements, parameters, sensors } from "./schema";
+import { WATER_QUALITY_SENSORS } from "./seed-data";
 
-async function seed() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required to seed the database.");
-  }
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required to seed the database.");
+}
 
-  await db.transaction(async (transaction) => {
+const connection = createDatabase(databaseUrl);
+
+async function seed(): Promise<void> {
+  await connection.database.transaction(async (transaction) => {
     const sensorRows = await transaction
       .insert(sensors)
       .values(
@@ -43,10 +46,7 @@ async function seed() {
       .values(WATER_QUALITY_PARAMETERS.map(({ key, unit }) => ({ key, unit })))
       .onConflictDoUpdate({
         target: parameters.key,
-        set: {
-          unit: sql`excluded.unit`,
-          updatedAt: sql`now()`,
-        },
+        set: { unit: sql`excluded.unit`, updatedAt: sql`now()` },
       })
       .returning({ id: parameters.id, key: parameters.key });
 
@@ -56,25 +56,18 @@ async function seed() {
     const parameterIds = new Map(
       parameterRows.map((parameter) => [parameter.key, parameter.id]),
     );
-
     const measurementRows = WATER_QUALITY_SENSORS.flatMap((sensor) => {
       const sensorId = sensorIds.get(sensor.id);
       if (sensorId === undefined) {
         throw new Error(`Unable to resolve sensor ${sensor.id}.`);
       }
-
       return sensor.measurements.map((measurement) => {
         const parameterId = parameterIds.get(measurement.key);
-        if (parameterId === undefined) {
-          throw new Error(`Unable to resolve parameter ${measurement.key}.`);
-        }
-
-        if (measurement.measuredAt === null) {
+        if (parameterId === undefined || measurement.measuredAt === null) {
           throw new Error(
-            `Seed measurement ${measurement.key} has no timestamp.`,
+            `Unable to resolve seed measurement ${measurement.key}.`,
           );
         }
-
         return {
           sensorId,
           parameterId,
@@ -99,11 +92,8 @@ async function seed() {
 }
 
 seed()
-  .then(async () => {
-    await db.$client.end();
-  })
-  .catch(async (error: unknown) => {
+  .catch((error: unknown) => {
     console.error(error);
-    await db.$client.end();
     process.exitCode = 1;
-  });
+  })
+  .finally(() => connection.close());

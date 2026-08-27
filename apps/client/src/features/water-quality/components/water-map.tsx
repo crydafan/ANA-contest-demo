@@ -3,7 +3,7 @@
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
-} from "@ana-contest-demo/water-quality-contract";
+} from "@ana-contest-demo/contract";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
@@ -315,7 +315,7 @@ function SensorDrawer({
   );
 }
 
-export function WaterQualityMap({
+export function WaterMap({
   initialSensors,
 }: {
   initialSensors: readonly SensorSnapshot[];
